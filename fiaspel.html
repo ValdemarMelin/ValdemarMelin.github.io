@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script>
+        function start() {
+            slots = ["red", "green", "blue", "yellow"];
+            players = {};
+            all_empty = true;
+            for(slot in slots) {
+                var player = document.querySelector("input[name='" + slots[slot] + "']:checked").value;
+                players[slots[slot]] = player;
+                if(player != "empty") {
+                    all_empty = false;
+                }
+            }
+            if(all_empty) {
+                console.log("no players.")
+                document.getElementsByClassName("errortext")[0].innerHTML="Det finns ingen som spelar.";
+            }
+            else {
+                document.getElementsByClassName("errortext")[0].innerHTML="";
+                document.getElementById("gamespec").hidden=true;
+                document.getElementById("game").hidden=false;
+            }
+            playFIA(players);
+        }
+        function restart() {
+            document.getElementById("gamespec").hidden=false;
+            document.getElementById("game").hidden=true;
+        }
+
+        var redpath = [[6,0],[6,1],[6,2],[6,3],[6,4],[7,4],[8,4],[9,4],[10,4],[10,5],
+            [10,6],[9,6],[8,6],[7,6],[6,6],[6,7],[6,8],[6,9],[6,10],
+            [5,10],[4,10],[4,9],[4,8],[4,7],[4,6],[3,6],[2,6],[1,6],[0,6],
+            [0,5],[0,4],[1,4],[2,4],[3,4],[4,4],[4,3],[4,2],[4,1],[4,0],[5,0],
+            [5,1],[5,2],[5,3],[5,4],[5,5]];
+        var greenPath=[];
+        var bluePath=[];
+        var yellowPath=[];
+        for(var ii = 0; ii < redpath.length; ii++) {
+            greenPath[ii] = [redpath[ii][1],10-redpath[ii][0]];
+            bluePath[ii] = [10-redpath[ii][0],10-redpath[ii][1]];
+            yellowPath[ii] = [10-redpath[ii][1],redpath[ii][0]];
+        }
+        var paths={"red":redpath,"green":greenPath,"blue":bluePath,"yellow":yellowPath};
+        
+        var colorgrid = [
+            ["white","white","white","white","red","yellow","red","white","white","white","white"],
+            ["white","white","white","white","green","red","green","white","white","white","white"],
+            ["white","white","white","white","yellow","red","yellow","white","white","white","white"],
+            ["white","white","white","white","blue","red","blue","white","white","white","white"],
+            ["red","green","yellow","blue","red","red","red","blue","yellow","green","red"],
+            ["yellow","green","green","green","green","white","yellow","yellow","yellow","yellow","yellow"],
+            ["red","green","yellow","blue","red","blue","red","blue","yellow","green","red"],
+            ["white","white","white","white","blue","blue","blue","white","white","white","white"],
+            ["white","white","white","white","yellow","blue","yellow","white","white","white","white"],
+            ["white","white","white","white","green","blue","green","white","white","white","white"],
+            ["white","white","white","white","red","yellow","red","white","white","white","white"],
+        ];
+        var bases = {"red":[9,2],"green":[2,2],"blue":[2,9],"yellow":[9,9]};
+        class Piece {
+            constructor(color) {
+                this.color = color;
+                this.position = -1;
+            }
+            step(num) {
+                if(this.position<0) {
+                    return;
+                }
+                if(this.position+num >= 44) {
+                    this.position = 44-(this.position+num-44);
+                }
+                else {
+                    this.position += num;
+                }
+            }
+            getCoordinates() {
+                var path = paths[this.color];
+                if(this.position==-1) {
+                    return null;
+                }
+                else {
+                    return path[this.position];
+                }
+            }
+        }
+        
+        class FiaGame {
+            constructor(players) {
+                this.pieces = [];
+                for(var piecenum = 0; piecenum < 16; piecenum++) {
+                    this.pieces.push(new Piece(["red", "green", "blue", "yellow"][Math.floor(piecenum / 4)]));
+                }
+                this.players = [];
+                this.is_ai = {};
+                for(var player in players) {
+                    if(players[player] != "empty") {
+                        this.players.push(player);
+                        this.is_ai[player] = false;
+                    }
+                    if(players[player] == "AI") {
+                        this.is_ai[player] = true;
+                    }
+                }
+                this.setNextMove(this.players[0],"rollDice");
+            }
+            getPiecesAt(i,j) {
+                var pieceList=[];
+                for(var piece in this.pieces){
+                    var path=paths[this.pieces[piece].color];
+                    if(this.pieces[piece].position == -1) {
+                        continue;
+                    }
+                    if(path[this.pieces[piece].position][0] == i && path[this.pieces[piece].position][1] == j) {
+                        pieceList.push(this.pieces[piece]);
+                    }
+                }
+                return pieceList;
+            }
+            getNextNextPlayer() {
+                var index = this.players.indexOf(this.nextPlayer);
+                return this.players[(index + 1) % this.players.length];
+            }
+            setNextMove(player, action) {
+                this.nextPlayer = player;
+                this.nextAction = action;
+                gameMessage(
+                    {"red":"Röd", "blue":"Blå", "green":"Grön", "yellow":"Gul"}[this.nextPlayer]+"s tur att " + 
+                    {"rollDice":"slå tärningen.", "selectPiece":"välja en pjäs.","secondSelectPiece":"välja en till pjäs."}[this.nextAction]
+                );
+                if(this.is_ai[player] == true) {
+                    // AGI implementation 
+                    if(action == "rollDice") {
+                        this.rollDice();
+                    }
+                    else if(action == "selectPiece") {
+                        var biggest = -1;
+                        var pieceToPick = null;
+                        for(var piece in this.pieces) {
+                            if(this.pieces[piece].color == this.nextPlayer && this.pieces[piece].position >= biggest && this.pieces[piece].position < 44) {
+                                biggest = this.pieces[piece].position;
+                                pieceToPick = this.pieces[piece];
+                            }
+                        }
+                        if(biggest == -1) {
+                            this.clickCamp(this.nextPlayer);
+                        }
+                        else {
+                            var i = pieceToPick.getCoordinates()[0];
+                            var j = pieceToPick.getCoordinates()[1];
+                            this.clickBrick(i,j);
+                        }
+                    }
+                    else if(action == "secondSelectPiece") {
+                        for(var piece in this.pieces) {
+                            if(this.pieces[piece].color == this.nextPlayer && this.pieces[piece].position == 0) {
+                                var i = this.pieces[piece].getCoordinates()[0];
+                                var j = this.pieces[piece].getCoordinates()[1];
+                                this.clickBrick(i,j);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            rollDice() {
+                if(this.nextAction != "rollDice") {
+                    return;
+                }
+                this.diceValue = Math.floor(Math.random()*6)+1;
+                drawdiceface(this.diceValue);
+                var hasPieceOut = false;
+                for(var piece in this.pieces) {
+                    if(this.pieces[piece].color == this.nextPlayer && this.pieces[piece].position != -1 && this.pieces[piece].position != 44) {
+                        hasPieceOut = true;
+                        break;
+                    }
+                }
+                if(hasPieceOut || this.diceValue == 1 || this.diceValue == 6) {
+                    this.setNextMove(this.nextPlayer, "selectPiece");
+                }
+                else {
+                    this.setNextMove(this.getNextNextPlayer(), "rollDice");
+                }
+            }
+            clickCamp(color) {
+                if(!(this.nextAction == "selectPiece" || this.nextAction == "secondSelectPiece") || color != this.nextPlayer) {
+                    return;
+                }
+                if(!(fiaGame.diceValue == 1 || fiaGame.diceValue == 6)) {
+                    return;
+                }
+                for(piece in fiaGame.pieces) {
+                    if(fiaGame.pieces[piece].color == color && fiaGame.pieces[piece].position == -1) {
+                        fiaGame.pieces[piece].position=0;
+                        this.checkForKnuff(fiaGame.pieces[piece]);
+                        drawBoard();
+                        if(fiaGame.diceValue == 6) {
+                            if(this.nextAction == "selectPiece") {
+                                fiaGame.setNextMove(this.nextPlayer, "secondSelectPiece");
+                            }
+                            else if(this.nextAction == "secondSelectPiece") {
+                                fiaGame.setNextMove(this.nextPlayer, "rollDice");
+                            }
+                        }
+                        else {
+                            fiaGame.setNextMove(this.getNextNextPlayer(), "rollDice");
+                        }
+                        break;
+                    }
+                }
+
+            }
+            clickBrick(i,j) {
+                if(!(this.nextAction == "selectPiece" || this.nextAction == "secondSelectPiece")) {
+                    return;
+                }
+                var pieces = this.getPiecesAt(i,j);
+                for(piece in pieces) {
+                    if(pieces[piece].color == this.nextPlayer) {
+                        if(this.nextAction == "selectPiece") {
+                            pieces[piece].step(this.diceValue);
+                            this.checkForKnuff(pieces[piece]);
+                            if(this.diceValue == 6) {
+                                this.setNextMove(this.nextPlayer, "rollDice");
+                            }
+                            else {
+                                this.setNextMove(this.getNextNextPlayer(), "rollDice");
+                            }
+                            drawBoard();
+                            return;
+                        }
+                        else if(this.nextAction == "secondSelectPiece") {
+                            if(pieces[piece].position == 0) {
+                                pieces[piece].step(5);
+                                this.setNextMove(this.nextPlayer, "rollDice");
+                                drawBoard();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            checkForKnuff(piece) {
+                var coordinates = piece.getCoordinates();
+                var pieces = this.getPiecesAt(coordinates[0],coordinates[1]);
+                for(var p2 in pieces) {
+                    if(pieces[p2].color != piece.color) {
+                        if(pieces[p2].position == 4 || pieces[p2].position == 14 || pieces[p2].position == 24 || pieces[p2].position == 34 || pieces[p2].position == 44) {
+                            continue;
+                        }
+                        pieces[p2].position = -1;
+                    }
+                }
+            }
+        }
+        
+        var fiaGame;
+        function playFIA(players) {
+            fiaGame = new FiaGame(players);
+            drawBoard();
+            drawdiceface(6);
+        }
+        function gameMessage(text) {
+            document.getElementById("gamemessage").innerHTML=text;
+        }
+
+        function drawBoard() {
+            canvas = document.getElementById("board");
+            x = canvas.getContext("2d");
+            x.clearRect(0,0,600,600);
+            for(i=0;i<11;i++) {
+                for(j=0;j<11;j++){
+                    x.beginPath();
+                    x.arc((i+0.5)*600/11.0,(j+0.5)*600/11.0,300.0/11.0,0,2*Math.PI);
+                    x.fillStyle=colorgrid[j][i];
+                    x.fill();
+                    pieces = fiaGame.getPiecesAt(i,j);
+                    console.log(pieces);
+                    if(pieces.length > 0) {
+                        angle = 2*Math.PI/pieces.length;
+                        radius = 100/11.0;
+                        if(pieces.length == 1) {
+                            radius = 0;
+                        }
+                        for(mem in pieces) {
+                            offx = radius*Math.cos(mem*angle);
+                            offy = radius*Math.sin(mem*angle);
+                            drawPiece(pieces[mem].color,(i+0.5)*600/11.0+offx,(j+0.5)*600/11.0+offy);
+                        }
+                    }
+                    console.log();
+                }
+            }
+            for(base in bases) {
+                x.beginPath();
+                var i=bases[base][0];
+                var j=bases[base][1];
+                x.arc(i*600/11.0,j*600/11.0,600.0/11.0,0,2*Math.PI);
+                x.strokeStyle=base;
+                x.lineWidth=5;
+                x.stroke();
+                members=[];
+                for(piece in fiaGame.pieces) {
+                    if(fiaGame.pieces[piece].color == base && fiaGame.pieces[piece].position==-1) {
+                        members.push(base);
+                    }
+                }
+                if(members.length>0) {
+                    angle = 2*Math.PI/members.length;
+                    radius = 200/11.0;
+                    if(members.length == 1) {
+                        radius = 0;
+                    }
+                    for(mem in members) {
+                        offx = radius*Math.cos(mem*angle);
+                        offy = radius*Math.sin(mem*angle);
+                        drawPiece(base,i*600/11.0+offx,j*600/11.0+offy);
+                    }
+                }
+            }
+        }
+        function drawPiece(color, x, y) {
+            canvas = document.getElementById("board");
+            ctx = canvas.getContext("2d");
+            ctx.strokeStyle="black";
+            ctx.fillStyle=color;
+            ctx.lineWidth=3;
+            ctx.beginPath();
+            ctx.moveTo(x,y);
+            ctx.lineTo(x-10,y+20);
+            ctx.lineTo(x+10,y+20);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x,y,70.0/11.0,0,2*Math.PI);
+            ctx.stroke();
+            ctx.fill();
+        }
+        function drawdiceface(face) {
+            dice = document.getElementById("dice");
+            x = dice.getContext("2d");
+            x.clearRect(0,0,100,100);
+            dicedots = [
+                [4],
+                [0,8],
+                [0,4,8],
+                [0,2,6,8],
+                [0,2,4,6,8],
+                [0,2,3,5,6,8]
+            ][face-1];
+            for(dot in dicedots) {
+                dotnum = dicedots[dot];
+                dotrow = Math.floor(dotnum/3);
+                dotcol = dotnum % 3;
+                x.beginPath();
+                x.arc(20+30*dotcol,20+30*dotrow,10,0,2*Math.PI);
+                x.fillStyle="black";
+                x.fill();
+            }
+        }
+        function basedist(x,y,color) {
+            var dx = x-bases[color][0]*600/11.0;
+            var dy = y-bases[color][1]*600/11.0;
+            return Math.sqrt(dx*dx+dy*dy);
+        }
+        function boardClick(canvas,event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            for(base in bases) {
+                dx = x-bases[base][0]*600/11.0;
+                dy = y-bases[base][1]*600/11.0;
+                dist = Math.sqrt(dx*dx+dy*dy);
+                if (dist < 600/11.0) {
+                    fiaGame.clickCamp(base);
+                    break;
+                }
+            }
+            for(i = 0; i < 11; i++) {
+                for(j = 0; j < 11; j++) {
+                    dx = x-(i+0.5)*600/11.0;
+                    dy = y-(j+0.5)*600/11.0;
+                    dist = Math.sqrt(dx*dx+dy*dy);
+                    if(dist < 300/11.0) {
+                        if(colorgrid[j][i] != "white") {
+                            fiaGame.clickBrick(i,j);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        #gamespec .bbox {
+            display: inline-block;
+            min-width: 3em;
+        }
+        #gamespec .errortext {
+            color: red;
+        }
+        #game {
+            width:800px;
+        }
+        #board {
+            width: 600px;
+            height: 600px;
+            background-color: white;
+            display: inline-block;
+        }
+        #gamemessage {
+            font-family: "Comic Sans MS", "Comic Sans", cursive;
+            font-size: larger;
+        }
+        #leftpane {
+            clear:none;
+            float:right;
+            height: 600px;
+            width: 190px;
+        }
+        #dice {
+            display: block;
+            width:100px;
+            height:100px;
+            margin-left:auto;
+            margin-right: 0px;
+            margin-top: 250px;
+            border: 3px solid brown;
+            border-radius: 20px;
+        }
+        #newgame {
+            float:right;
+        }
+    </style>
+</head>
+<body>
+    <form id="gamespec">
+        <h3>Select players</h3>
+        <p class="errortext"></p>
+        <p><span class="bbox"><b>Röd:</b></span> ingen <input type="radio" name="red" value="empty" checked/> AI <input type="radio" name="red" value="AI"/> människa <input type="radio" name="red" value="player"/></p>
+        <p><span class="bbox"><b>Grön:</b></span> ingen <input type="radio" name="green" value="empty" checked/> AI <input type="radio" name="green" value="AI"/> människa <input type="radio" name="green" value="player"/></p>
+        <p><span class="bbox"><b>Blå:</b></span> ingen <input type="radio" name="blue" value="empty" checked/> AI <input type="radio" name="blue" value="AI"/> människa <input type="radio" name="blue" value="player"/></p>
+        <p><span class="bbox"><b>Gul:</b></span> ingen <input type="radio" name="yellow" value="empty" checked/> AI <input type="radio" name="yellow" value="AI"/> människa <input type="radio" name="yellow" value="player"/></p>
+        <input type="button" id="startgame" name="submit" value="Välj" onclick="start()"/>
+        
+    </form>
+    <div id="game" hidden="true">
+    <canvas id="board" width="600" height="600" onclick="boardClick(this,event)"></canvas>
+    <div id="leftpane">
+        <p id="gamemessage"></p>
+        <canvas id="dice" width="100" height="100" onclick="fiaGame.rollDice()"></canvas>
+    </div>
+    <input type="button" id="newgame" name="restart" value="Avsluta och börja om" onclick="restart()" />
+    </div>
+</body>
+</html>
